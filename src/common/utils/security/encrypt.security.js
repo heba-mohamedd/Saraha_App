@@ -1,7 +1,8 @@
 import crypto from "node:crypto";
-
-const ENCRYPTION_KEY = Buffer.from("7@mcvf7320#dbckd612074c3a9737sd4");
-const IV_LENGTH = 16;
+import {
+  ENCRYPTION_KEY,
+  IV_LENGTH,
+} from "../../../../config/config.service.js";
 
 export function encrypt(text) {
   const iv = crypto.randomBytes(IV_LENGTH);

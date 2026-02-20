@@ -1,8 +1,9 @@
 import mongoose from "mongoose";
+import { DB_URL } from "../../config/config.service.js";
 
 const checkConnectionDB = async () => {
   await mongoose
-    .connect("mongodb://127.0.0.1:27017/saraha-app", {
+    .connect(DB_URL, {
       serverSelectionTimeoutMS: 5000,
     })
     .then(() => {
