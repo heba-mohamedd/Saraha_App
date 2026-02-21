@@ -21,8 +21,7 @@ import { OAuth2Client } from "google-auth-library";
 export const signUp = async (req, res, next) => {
   const { userName, email, password, cPassword, phone, age, gender } = req.body;
 
-  if (userName.split(" ").length < 2) {
-    // return res.status(409).json({ message: "lastName is require" });
+  if (userName.trim().split(" ").length < 2) {
     throw new Error("lastName is require", { cause: 406 });
   }
   if (password !== cPassword) {
@@ -35,16 +34,17 @@ export const signUp = async (req, res, next) => {
     // next(new Error("email already exist")); // when send error to next function ===> go to global error handling
     // return res.status(409).json({ message: "email already exist" });
   }
+  let userData = {
+    userName,
+    email,
+    password: Hash({ plainText: password, salt_rounds: SALT_ROUNDS }),
+  };
+  if (phone) userData.phone = encrypt(phone);
+  if (age) userData.age = age;
+  if (gender) userData.gender = gender;
   const user = await db_service.create({
     model: userModel,
-    data: {
-      userName,
-      email,
-      password: Hash({ plainText: password, salt_rounds: SALT_ROUNDS }),
-      age,
-      gender,
-      phone: encrypt(phone),
-    },
+    data: userData,
   });
   successResponse({ res, status: 201, data: user });
 };

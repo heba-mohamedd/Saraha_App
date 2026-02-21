@@ -21,7 +21,7 @@ const bootstrap = () => {
       .status(err.cause || 500)
       .json({ message: err.message, stack: err.stack });
   });
-
+  // , error: err
   app.listen(port, () => console.log(`Example app listening on port ${port}!`));
 };
 
