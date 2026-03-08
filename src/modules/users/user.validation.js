@@ -3,7 +3,7 @@ import { GenderEnum } from "../../common/enum/user.enum.js";
 
 export const signUpSchema = {
   body: Joi.object({
-    userName: Joi.string().min(4).max(30).required(),
+    userName: Joi.string().alphanum().min(4).max(30).required(),
     email: Joi.string().email().required(),
     password: Joi.string().required(),
     cPassword: Joi.string().valid(Joi.ref("password")).required(),

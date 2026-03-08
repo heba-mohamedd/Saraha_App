@@ -22,3 +22,6 @@ export const SECRET_KEY = process.env.SECRET_KEY;
 export const SALT_ROUNDS = +process.env.SALT_ROUNDS;
 export const IV_LENGTH = +process.env.IV_LENGTH;
 export const ENCRYPTION_KEY = Buffer.from(process.env.ENCRYPTION_KEY);
+export const CLOUDINARY_NAME = process.env.CLOUDINARY_NAME;
+export const CLOUDINARY_API_KEY = process.env.CLOUDINARY_API_KEY;
+export const CLOUDINARY_API_SECRET = process.env.CLOUDINARY_API_SECRET;

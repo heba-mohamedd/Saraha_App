@@ -4,6 +4,7 @@ import {
   WEB_CLIENT_ID,
 } from "../../../config/config.service.js";
 import { ProviderEnum } from "../../common/enum/user.enum.js";
+import cloudinary from "../../common/utils/cloudinary.js";
 import { successResponse } from "../../common/utils/response.success.js";
 import {
   decrypt,
@@ -17,36 +18,145 @@ import {
 import * as db_service from "../../DB/db.service.js";
 import userModel from "../../DB/models/user.model.js";
 import { OAuth2Client } from "google-auth-library";
+import fs from "node:fs";
+
+// upload files in local
+// export const signUp = async (req, res, next) => {
+
+//   try {
+//     const { userName, email, password, cPassword, phone, age, gender } =
+//       req.body;
+
+//     console.log(req.files);
+//     if (userName.trim().split(" ").length < 2) {
+//       throw new Error("lastName is require", { cause: 406 });
+//     }
+//     if (password !== cPassword) {
+//       throw new Error(" password not matched", { cause: 400 });
+//     }
+
+//     if (await db_service.findOne({ model: userModel, filter: { email } })) {
+//       throw new Error("email already exist", { cause: 409 });
+//       // Or
+//       // next(new Error("email already exist")); // when send error to next function ===> go to global error handling
+//       // return res.status(409).json({ message: "email already exist" });
+//     }
+
+//     let arr_paths = [];
+//     for (const file of req.files.attachments) {
+//       arr_paths.push(file.path);
+//     }
+
+//     let userData = {
+//       userName,
+//       email,
+//       password: Hash({ plainText: password, salt_rounds: SALT_ROUNDS }),
+//     };
+//     if (phone) userData.phone = encrypt(phone);
+//     if (age) userData.age = age;
+//     if (gender) userData.gender = gender;
+
+//     const user = await db_service.create({
+//       model: userModel,
+//       data: {
+//         ...userData,
+//         profilePicture: req.files.attachment[0].path,
+//         coverPictures: arr_paths,
+//       },
+//     });
+
+//     successResponse({ res, status: 201, data: user });
+//   } catch (error) {
+//     if (error && req.files) {
+//       if (req.files.attachment) {
+//         fs.unlinkSync(req.files.attachment[0].path);
+//       }
+
+//       if (req.files.attachments) {
+//         for (const file of req.files.attachments) {
+//           fs.unlinkSync(file.path);
+//         }
+//       }
+//       next(error);
+//     }
+//   }
+// };
 
 export const signUp = async (req, res, next) => {
-  const { userName, email, password, cPassword, phone, age, gender } = req.body;
+  try {
+    const { userName, email, password, cPassword, phone, age, gender } =
+      req.body;
 
-  if (userName.trim().split(" ").length < 2) {
-    throw new Error("lastName is require", { cause: 406 });
-  }
-  if (password !== cPassword) {
-    throw new Error(" password not matched", { cause: 400 });
-  }
+    if (userName.trim().split(" ").length < 2) {
+      throw new Error("lastName is require", { cause: 406 });
+    }
+    if (password !== cPassword) {
+      throw new Error(" password not matched", { cause: 400 });
+    }
 
-  if (await db_service.findOne({ model: userModel, filter: { email } })) {
-    throw new Error("email already exist", { cause: 409 });
-    // Or
-    // next(new Error("email already exist")); // when send error to next function ===> go to global error handling
-    // return res.status(409).json({ message: "email already exist" });
+    if (await db_service.findOne({ model: userModel, filter: { email } })) {
+      throw new Error("email already exist", { cause: 409 });
+      // Or
+      // next(new Error("email already exist")); // when send error to next function ===> go to global error handling
+      // return res.status(409).json({ message: "email already exist" });
+    }
+
+    const { secure_url, public_id } = await cloudinary.uploader.upload(
+      req.files?.attachment?.[0]?.path,
+      {
+        folder: "sarah-app/users",
+      },
+    );
+
+    let arr_paths = [];
+
+    if (req.files?.attachments) {
+      for (const file of req.files.attachments) {
+        const { secure_url, public_id } = await cloudinary.uploader.upload(
+          file.path,
+          {
+            folder: "sarah-app/users",
+          },
+        );
+
+        arr_paths.push({ secure_url, public_id });
+        fs.unlinkSync(file.path);
+      }
+    }
+
+    let userData = {
+      userName,
+      email,
+      password: Hash({ plainText: password, salt_rounds: SALT_ROUNDS }),
+    };
+    if (phone) userData.phone = encrypt(phone);
+    if (age) userData.age = age;
+    if (gender) userData.gender = gender;
+
+    const user = await db_service.create({
+      model: userModel,
+      data: {
+        ...userData,
+        profilePicture: { secure_url, public_id },
+        coverPictures: arr_paths,
+      },
+    });
+
+    successResponse({ res, status: 201, data: user });
+  } catch (error) {
+    if (error && req.files) {
+      if (req.files.attachment) {
+        fs.unlinkSync(req.files.attachment[0].path);
+      }
+
+      if (req.files.attachments) {
+        for (const file of req.files.attachments) {
+          fs.unlinkSync(file.path);
+        }
+      }
+      next(error);
+    }
   }
-  let userData = {
-    userName,
-    email,
-    password: Hash({ plainText: password, salt_rounds: SALT_ROUNDS }),
-  };
-  if (phone) userData.phone = encrypt(phone);
-  if (age) userData.age = age;
-  if (gender) userData.gender = gender;
-  const user = await db_service.create({
-    model: userModel,
-    data: userData,
-  });
-  successResponse({ res, status: 201, data: user });
 };
 
 export const signUpWithGmail = async (req, res, next) => {
