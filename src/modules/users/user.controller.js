@@ -37,10 +37,13 @@ userRouter.post(
       maxCount: 4,
     },
   ]),
+  validation(UV.signUpSchema),
   US.signUp,
 );
 userRouter.post("/signup/gmail", US.signUpWithGmail);
 userRouter.post("/signin", validation(UV.signInSchema), US.signIn);
+userRouter.get("/refresh_token", US.refreshToken);
+
 userRouter.get(
   "/profile",
   authentication,
@@ -48,4 +51,24 @@ userRouter.get(
   US.getProfile,
 );
 
+userRouter.patch(
+  "/updata-profile",
+  authentication,
+  authorization(RoleEnum.user),
+  US.updatatProfile,
+);
+
+userRouter.get(
+  "/share-profile/:id",
+  validation(UV.shareProfileSchema),
+  US.shareProfile,
+);
+
+userRouter.patch(
+  "/updata-password",
+  authentication,
+  authorization(RoleEnum.user),
+  validation(UV.updataPasswordSchema),
+  US.updatatPassword,
+);
 export default userRouter;

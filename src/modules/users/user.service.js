@@ -1,6 +1,8 @@
 import {
+  ACCESS_SECRET_KEY,
+  PREFIX,
+  REFRESH_SECRET_KEY,
   SALT_ROUNDS,
-  SECRET_KEY,
   WEB_CLIENT_ID,
 } from "../../../config/config.service.js";
 import { ProviderEnum } from "../../common/enum/user.enum.js";
@@ -83,6 +85,8 @@ import fs from "node:fs";
 // };
 
 export const signUp = async (req, res, next) => {
+  let profilePicture_PublicId = null;
+  let CoverPicture_PublicId = [];
   try {
     const { userName, email, password, cPassword, phone, age, gender } =
       req.body;
@@ -101,12 +105,17 @@ export const signUp = async (req, res, next) => {
       // return res.status(409).json({ message: "email already exist" });
     }
 
-    const { secure_url, public_id } = await cloudinary.uploader.upload(
-      req.files?.attachment?.[0]?.path,
-      {
-        folder: "sarah-app/users",
-      },
-    );
+    let profilePicture = null;
+
+    if (req.files?.attachment) {
+      const { secure_url, public_id } = await cloudinary.uploader.upload(
+        req.files.attachment[0].path,
+        { folder: "sarah-app/users" },
+      );
+      profilePicture = { secure_url, public_id };
+      profilePicture_PublicId = { public_id };
+      fs.unlinkSync(req.files.attachment[0].path);
+    }
 
     let arr_paths = [];
 
@@ -118,11 +127,12 @@ export const signUp = async (req, res, next) => {
             folder: "sarah-app/users",
           },
         );
-
         arr_paths.push({ secure_url, public_id });
+        CoverPicture_PublicId.push({ public_id });
         fs.unlinkSync(file.path);
       }
     }
+    console.log({ profilePicture_PublicId, CoverPicture_PublicId });
 
     let userData = {
       userName,
@@ -137,25 +147,36 @@ export const signUp = async (req, res, next) => {
       model: userModel,
       data: {
         ...userData,
-        profilePicture: { secure_url, public_id },
+        profilePicture,
         coverPictures: arr_paths,
       },
     });
 
     successResponse({ res, status: 201, data: user });
   } catch (error) {
-    if (error && req.files) {
-      if (req.files.attachment) {
-        fs.unlinkSync(req.files.attachment[0].path);
+    if (req.files?.attachment) {
+      if (profilePicture_PublicId?.public_id) {
+        await cloudinary.uploader.destroy(profilePicture_PublicId.public_id);
       }
 
-      if (req.files.attachments) {
-        for (const file of req.files.attachments) {
+      if (fs.existsSync(req.files.attachment[0].path)) {
+        fs.unlinkSync(req.files.attachment[0].path);
+      }
+    }
+
+    if (req.files?.attachments) {
+      for (const file of req.files.attachments) {
+        if (fs.existsSync(file.path)) {
           fs.unlinkSync(file.path);
         }
       }
-      next(error);
+
+      for (const picture of CoverPicture_PublicId) {
+        await cloudinary.uploader.destroy(picture.public_id);
+      }
     }
+
+    next(error);
   }
 };
 
@@ -188,7 +209,7 @@ export const signUpWithGmail = async (req, res, next) => {
   }
   const access_token = GenerateToken({
     payload: { id: user._id, email: user.email },
-    secret_key: SECRET_KEY,
+    secret_key: ACCESS_SECRET_KEY,
     options: { expiresIn: "1h" },
   });
   successResponse({
@@ -223,13 +244,19 @@ export const signIn = async (req, res, next) => {
 
   const access_token = GenerateToken({
     payload: { id: user._id, email: user.email },
-    secret_key: SECRET_KEY,
+    secret_key: ACCESS_SECRET_KEY,
     options: { expiresIn: "1h" },
   });
+  const refresh_token = GenerateToken({
+    payload: { id: user._id, email: user.email },
+    secret_key: REFRESH_SECRET_KEY,
+    options: { expiresIn: "1y" },
+  });
+
   successResponse({
     res,
     message: "sign in success",
-    data: { access_token: access_token, user },
+    data: { access_token: access_token, refresh_token, user },
   });
 };
 
@@ -239,4 +266,120 @@ export const getProfile = async (req, res, next) => {
   user.phone = decrypt(user.phone);
   // or ===> data:{...user._doc , phone:decrypt(user.phone)}
   successResponse({ res, message: "user Profile", data: user });
+};
+
+export const refreshToken = async (req, res, next) => {
+  const { authorization } = req.headers;
+  console.log(authorization);
+
+  if (!authorization) {
+    throw new Error("token not exist");
+  }
+
+  const [prefix, token] = authorization.split(" ");
+
+  if (prefix !== PREFIX) {
+    throw new Error("Invalid token prefix");
+  }
+
+  const decoded = VerifyToken({
+    token: token,
+    secret_key: REFRESH_SECRET_KEY,
+  });
+
+  if (!decoded?.id) {
+    throw new Error("Invalid token");
+  }
+
+  const user = await db_service.findOne({
+    model: userModel,
+    filter: { _id: decoded.id },
+    options: { select: "-password" },
+  });
+
+  if (!user) {
+    throw new Error("user not exist", { cause: 404 });
+  }
+
+  const access_token = GenerateToken({
+    payload: {
+      id: user._id,
+      email: user.email,
+    },
+    secret_key: ACCESS_SECRET_KEY,
+    options: {
+      expiresIn: "5m",
+    },
+  });
+
+  return successResponse({
+    res,
+    message: "success",
+    data: { access_token },
+  });
+};
+
+export const shareProfile = async (req, res, next) => {
+  const { id } = req.params;
+
+  const user = await db_service.findOne({
+    model: userModel,
+    filter: {
+      id,
+    },
+    options: {
+      select: "-password",
+    },
+  });
+  if (!user) {
+    throw new Error("user not exist", { cause: 404 });
+  }
+
+  user.phone = decrypt(user.phone);
+  // or ===> data:{...user._doc , phone:decrypt(user.phone)}
+  successResponse({ res, message: "success", data: user });
+};
+
+export const updatatProfile = async (req, res, next) => {
+  const { firstName, lastName, phone, age, gender } = req.body;
+  if (phone) {
+    phone = encrypt(phone);
+  }
+  const user = await db_service.findOneAndUpdate({
+    model: userModel,
+    filter: {
+      _id: req.user._id,
+    },
+    update: { firstName, lastName, phone, age, gender },
+  });
+  if (!user) {
+    throw new Error("user not exist", { cause: 404 });
+  }
+
+  // user.phone = decrypt(user.phone);
+  // or ===> data:{...user._doc , phone:decrypt(user.phone)}
+  successResponse({ res, message: "updated success", data: user });
+};
+
+export const updatatPassword = async (req, res, next) => {
+  const { oldPassword, newPassword } = req.body;
+  console.log(req.user);
+
+  if (!Compare({ plainText: oldPassword, cipherText: req.user.password })) {
+    throw new Error("Invalid Password", { cause: 400 });
+  }
+
+  const hash = Hash({ plainText: newPassword });
+
+  req.user.password = hash;
+
+  await req.user.save();
+
+  req.user.password = undefined;
+
+  successResponse({
+    res,
+    message: "updated success",
+    data: req.user,
+  });
 };
