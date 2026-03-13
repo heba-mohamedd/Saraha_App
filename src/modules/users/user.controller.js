@@ -71,4 +71,6 @@ userRouter.patch(
   validation(UV.updataPasswordSchema),
   US.updatatPassword,
 );
+
+userRouter.get("/logout", authentication, US.logout);
 export default userRouter;

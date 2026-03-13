@@ -27,3 +27,4 @@ export const CLOUDINARY_NAME = process.env.CLOUDINARY_NAME;
 export const CLOUDINARY_API_KEY = process.env.CLOUDINARY_API_KEY;
 export const CLOUDINARY_API_SECRET = process.env.CLOUDINARY_API_SECRET;
 export const PREFIX = process.env.PREFIX;
+export const REDIS_URL = process.env.REDIS_URL;

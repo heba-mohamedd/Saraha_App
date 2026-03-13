@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   ACCESS_SECRET_KEY,
   PREFIX,
@@ -21,6 +22,8 @@ import * as db_service from "../../DB/db.service.js";
 import userModel from "../../DB/models/user.model.js";
 import { OAuth2Client } from "google-auth-library";
 import fs from "node:fs";
+import { model } from "mongoose";
+import revokeTokenModel from "../../DB/models/revokeToken.model.js";
 
 // upload files in local
 // export const signUp = async (req, res, next) => {
@@ -241,22 +244,23 @@ export const signIn = async (req, res, next) => {
     //   return res.status(409).json({ message: "Invalid Password" });
     throw new Error("Invalid Password", { cause: 400 });
   }
+  const jwtid = randomUUID();
 
   const access_token = GenerateToken({
     payload: { id: user._id, email: user.email },
     secret_key: ACCESS_SECRET_KEY,
-    options: { expiresIn: "1h" },
+    options: { expiresIn: "1h", jwtid },
   });
   const refresh_token = GenerateToken({
     payload: { id: user._id, email: user.email },
     secret_key: REFRESH_SECRET_KEY,
-    options: { expiresIn: "1y" },
+    options: { expiresIn: "1y", jwtid },
   });
 
   successResponse({
     res,
     message: "sign in success",
-    data: { access_token: access_token, refresh_token, user },
+    data: { access_token: access_token, refresh_token },
   });
 };
 
@@ -382,4 +386,34 @@ export const updatatPassword = async (req, res, next) => {
     message: "updated success",
     data: req.user,
   });
+};
+
+export const logout = async (req, res, next) => {
+  const { flag } = req.query;
+
+  if (flag === "all") {
+    req.user.changeCredential = new Date();
+    await req.user.save();
+    await db_service.deleteMany({
+      model: revokeTokenModel,
+      filter: {
+        userId: req.user._id,
+      },
+    });
+  } else {
+    await db_service.create({
+      model: revokeTokenModel,
+      data: {
+        tokenId: req.decoded.jti,
+        userId: req.user._id,
+        expiredAt: new Date(req.decoded.exp * 1000),
+      },
+    });
+  }
+
+  /* logout from all devices*/
+  // req.user.changeCredential = new Date();
+  // await req.user.save();
+
+  successResponse({ res });
 };

@@ -44,6 +44,7 @@ const userSchema = new mongoose.Schema(
     age: {
       type: Number,
     },
+    changeCredential: Date,
     gender: {
       type: String,
       enum: Object.values(GenderEnum),
