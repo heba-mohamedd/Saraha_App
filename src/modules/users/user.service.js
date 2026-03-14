@@ -24,6 +24,14 @@ import { OAuth2Client } from "google-auth-library";
 import fs from "node:fs";
 import { model } from "mongoose";
 import revokeTokenModel from "../../DB/models/revokeToken.model.js";
+import {
+  deleteKey,
+  get,
+  get_key,
+  keys,
+  revoked_key,
+  setValue,
+} from "../../DB/redis/redis.service.js";
 
 // upload files in local
 // export const signUp = async (req, res, next) => {
@@ -266,6 +274,16 @@ export const signIn = async (req, res, next) => {
 
 export const getProfile = async (req, res, next) => {
   const { user } = req;
+  const key = `profile::${user._id}`;
+  const userExist = await get(key);
+  if (userExist) {
+    userExist.phone = decrypt(userExist.phone);
+    // or ===> data:{...user._doc , phone:decrypt(user.phone)}
+
+    return successResponse({ res, message: "user Profile", data: userExist });
+  }
+
+  await setValue({ key, value: user, ttl: 60 });
 
   user.phone = decrypt(user.phone);
   // or ===> data:{...user._doc , phone:decrypt(user.phone)}
@@ -360,6 +378,7 @@ export const updatatProfile = async (req, res, next) => {
     throw new Error("user not exist", { cause: 404 });
   }
 
+  await deleteKey(`profile::${user._id}`);
   // user.phone = decrypt(user.phone);
   // or ===> data:{...user._doc , phone:decrypt(user.phone)}
   successResponse({ res, message: "updated success", data: user });
@@ -367,7 +386,6 @@ export const updatatProfile = async (req, res, next) => {
 
 export const updatatPassword = async (req, res, next) => {
   const { oldPassword, newPassword } = req.body;
-  console.log(req.user);
 
   if (!Compare({ plainText: oldPassword, cipherText: req.user.password })) {
     throw new Error("Invalid Password", { cause: 400 });
@@ -394,26 +412,29 @@ export const logout = async (req, res, next) => {
   if (flag === "all") {
     req.user.changeCredential = new Date();
     await req.user.save();
-    await db_service.deleteMany({
-      model: revokeTokenModel,
-      filter: {
-        userId: req.user._id,
-      },
-    });
+    // await db_service.deleteMany({
+    //   model: revokeTokenModel,
+    //   filter: {
+    //     userId: req.user._id,
+    //   },
+    // });
+    await deleteKey(await keys(get_key({ userId: req.user._id })));
   } else {
-    await db_service.create({
-      model: revokeTokenModel,
-      data: {
-        tokenId: req.decoded.jti,
-        userId: req.user._id,
-        expiredAt: new Date(req.decoded.exp * 1000),
-      },
+    // await db_service.create({
+    //   model: revokeTokenModel,
+    //   data: {
+    //     tokenId: req.decoded.jti,
+    //     userId: req.user._id,
+    //     expiredAt: new Date(req.decoded.exp * 1000 + 60 * 30 * 1000),
+    //   },
+    // });
+
+    await setValue({
+      key: revoked_key({ userId: req.user._id, jti: req.decoded.jti }),
+      value: `${req.decoded.jti}`,
+      ttl: req.decoded.exp - Math.floor(Date.now() / 1000),
     });
   }
-
-  /* logout from all devices*/
-  // req.user.changeCredential = new Date();
-  // await req.user.save();
 
   successResponse({ res });
 };

@@ -1,6 +1,13 @@
 import { redisClient } from "./redis.db.js";
 
-export const set = async ({ key, value, ttl }) => {
+export const revoked_key = ({ userId, jti }) => {
+  return `revoke_token::${userId}::${jti}`;
+};
+
+export const get_key = ({ userId }) => {
+  return `revoke_token::${userId}`;
+};
+export const setValue = async ({ key, value, ttl }) => {
   try {
     const data = typeof value === "string" ? value : JSON.stringify(value);
     return ttl
@@ -11,13 +18,12 @@ export const set = async ({ key, value, ttl }) => {
   }
 };
 
-export const updata = async ({ key, value }) => {
+export const updata = async ({ key, value, ttl }) => {
   try {
     if (!(await redisClient.exists(key))) {
       return 0;
     }
-    const data = typeof value === "string" ? value : JSON.stringify(value);
-    return await redisClient.set(key, data);
+    return await setValue({ key, value, ttl });
   } catch (error) {
     console.log("error to updata data in redis", error);
   }
@@ -61,7 +67,16 @@ export const keys = async (pattern) => {
 
 export const deleteKey = async (key) => {
   try {
+    if (!key.length) return 0;
     return await redisClient.del(key);
+  } catch (error) {
+    console.log("error to delete data in redis", error);
+  }
+};
+
+export const expire = async (key, ttl) => {
+  try {
+    return await redisClient.expire(key, ttl);
   } catch (error) {
     console.log("error to delete data in redis", error);
   }
