@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { OAuth2Client } from "google-auth-library";
 import {
   ACCESS_SECRET_KEY,
   PREFIX,
@@ -20,18 +21,25 @@ import {
 } from "../../common/utils/token.service.js";
 import * as db_service from "../../DB/db.service.js";
 import userModel from "../../DB/models/user.model.js";
-import { OAuth2Client } from "google-auth-library";
 import fs from "node:fs";
-import { model } from "mongoose";
-import revokeTokenModel from "../../DB/models/revokeToken.model.js";
 import {
+  block_otp_key,
   deleteKey,
+  expire,
   get,
   get_key,
+  get_ttl,
+  incr,
   keys,
+  max_otp_key,
+  otp_key,
   revoked_key,
   setValue,
 } from "../../DB/redis/redis.service.js";
+import { generateOtp, sendEmail } from "../../common/utils/email/send.email.js";
+import { eventEmitter } from "../../common/utils/email/email.events.js";
+import { emailEnum } from "../../common/enum/email.enum.js";
+import { emailTemplete } from "../../common/utils/email/email.templete.js";
 
 // upload files in local
 // export const signUp = async (req, res, next) => {
@@ -95,6 +103,50 @@ import {
 //   }
 // };
 
+export const sendEmailOtp = async ({ email, subject } = {}) => {
+  const isBlocked = await get_ttl(block_otp_key({ email, subject }));
+  if (isBlocked > 0) {
+    throw new Error(
+      `you are blocked ,please try again after ${isBlocked} seconds`,
+    );
+  }
+  const ttl = await get_ttl(otp_key({ email, subject }));
+  if (ttl > 0) {
+    throw new Error(`you can resend otp after ${ttl} seconds`);
+  }
+  const maxOtp = await get(max_otp_key({ email, subject }));
+  if (maxOtp >= 3) {
+    await setValue({
+      key: block_otp_key({ email, subject }),
+      value: 1,
+      ttl: 5 * 60,
+    });
+    throw new Error(`Too many attempts. Please try again later.`);
+  }
+
+  const otp = await generateOtp();
+
+  // Fire-and-forget: send email asynchronously via event
+  eventEmitter.emit(subject, async () => {
+    await sendEmail({
+      to: email,
+      subject: "Saraha App",
+      html: emailTemplete(otp),
+    });
+  });
+
+  // OTP storage MUST be outside the event callback to guarantee it's saved
+  await setValue({
+    key: otp_key({ email, subject }),
+    value: await Hash({ plainText: `${otp}` }),
+    ttl: 2 * 60,
+  });
+  const newCount = await incr(max_otp_key({ email, subject }));
+  if (newCount === 1) {
+    await expire(max_otp_key({ email, subject }), 6 * 60);
+  }
+};
+
 export const signUp = async (req, res, next) => {
   let profilePicture_PublicId = null;
   let CoverPicture_PublicId = [];
@@ -148,7 +200,7 @@ export const signUp = async (req, res, next) => {
     let userData = {
       userName,
       email,
-      password: Hash({ plainText: password, salt_rounds: SALT_ROUNDS }),
+      password: await Hash({ plainText: password, salt_rounds: SALT_ROUNDS }),
     };
     if (phone) userData.phone = encrypt(phone);
     if (age) userData.age = age;
@@ -162,6 +214,25 @@ export const signUp = async (req, res, next) => {
         coverPictures: arr_paths,
       },
     });
+
+    const otp = await generateOtp();
+
+    // Fire-and-forget: send email asynchronously via event
+    eventEmitter.emit(emailEnum.confirmEmail, async () => {
+      await sendEmail({
+        to: email,
+        subject: "Saraha App",
+        html: emailTemplete(otp),
+      });
+    });
+
+    // OTP storage MUST be outside the event callback to guarantee it's saved
+    await setValue({
+      key: otp_key({ email, subject: emailEnum.confirmEmail }),
+      value: await Hash({ plainText: `${otp}` }),
+      ttl: 2 * 60,
+    });
+    await setValue({ key: max_otp_key({ email }), value: 1, ttl: 6 * 60 });
 
     successResponse({ res, status: 201, data: user });
   } catch (error) {
@@ -189,6 +260,52 @@ export const signUp = async (req, res, next) => {
 
     next(error);
   }
+};
+
+export const confirmEmail = async (req, res, next) => {
+  const { email, code } = req.body;
+  const otpValue = await get(
+    otp_key({ email, subject: emailEnum.confirmEmail }),
+  );
+  if (!otpValue) {
+    throw new Error("otp expired");
+  }
+
+  if (!(await Compare({ plainText: code, cipherText: otpValue }))) {
+    throw new Error("Invalid Otp", { cause: 400 });
+  }
+
+  const user = await db_service.findOneAndUpdate({
+    model: userModel,
+    filter: {
+      email,
+      confirmed: { $exists: false },
+      provider: ProviderEnum.system,
+    },
+    update: { confirmed: true },
+  });
+  if (!user) {
+    throw new Error("user not Exist", { cause: 400 });
+  }
+  await deleteKey(otp_key({ email, subject: emailEnum.confirmEmail }));
+  successResponse({ res, message: "Email Confirmed Successfully" });
+};
+export const resendOtp = async (req, res, next) => {
+  const { email } = req.body;
+
+  const user = await db_service.findOne({
+    model: userModel,
+    filter: {
+      email,
+      confirmed: { $exists: false },
+      provider: ProviderEnum.system,
+    },
+  });
+  if (!user) {
+    throw new Error("user not Exist or already Confirmed", { cause: 400 });
+  }
+  await sendEmailOtp({ email, subject: emailEnum.confirmEmail });
+  successResponse({ res, message: "Email Confirmed Successfully" });
 };
 
 export const signUpWithGmail = async (req, res, next) => {
@@ -230,6 +347,67 @@ export const signUpWithGmail = async (req, res, next) => {
   });
 };
 
+export const forgetPassword = async (req, res, next) => {
+  const { email } = req.body;
+  if (!email) throw new Error("Email is required", { cause: 406 });
+
+  const user = await db_service.findOne({
+    model: userModel,
+    filter: {
+      email,
+      confirmed: { $exists: true },
+      provider: ProviderEnum.system,
+    },
+  });
+  if (!user) {
+    throw new Error("user not exist", { cause: 404 });
+  }
+
+  await sendEmailOtp({ email, subject: emailEnum.forgetPassword });
+
+  successResponse({
+    res,
+    message: "success",
+  });
+};
+export const resetPassword = async (req, res, next) => {
+  const { email, code, password } = req.body;
+  if (!email) throw new Error("Email is required", { cause: 406 });
+  const otpValue = await get(
+    otp_key({ email, subject: emailEnum.forgetPassword }),
+  );
+  if (!otpValue) {
+    throw new Error("otp expired");
+  }
+
+  if (!(await Compare({ plainText: code, cipherText: otpValue }))) {
+    throw new Error("Invalid Otp", { cause: 400 });
+  }
+
+  const user = await db_service.findOneAndUpdate({
+    model: userModel,
+    filter: {
+      email,
+      confirmed: { $exists: true },
+      provider: ProviderEnum.system,
+    },
+    update: {
+      password: await Hash({ plainText: password }),
+      changeCredential: new Date(),
+    },
+  });
+  if (!user) {
+    throw new Error("user not exist", { cause: 404 });
+  }
+
+  await deleteKey(otp_key({ email, subject: emailEnum.forgetPassword }));
+
+  successResponse({
+    res,
+    message: "success",
+  });
+};
+
 export const signIn = async (req, res, next) => {
   const { email, password } = req.body;
   if (!email && !password)
@@ -241,6 +419,7 @@ export const signIn = async (req, res, next) => {
     model: userModel,
     filter: {
       email,
+      confirmed: { $exists: true },
       provider: ProviderEnum.system,
     },
   });
@@ -248,7 +427,7 @@ export const signIn = async (req, res, next) => {
     //   return res.status(409).json({ message: "user not exist" });
     throw new Error("user not exist", { cause: 404 });
   }
-  if (!Compare({ plainText: password, cipherText: user.password })) {
+  if (!(await Compare({ plainText: password, cipherText: user.password }))) {
     //   return res.status(409).json({ message: "Invalid Password" });
     throw new Error("Invalid Password", { cause: 400 });
   }
@@ -386,22 +565,32 @@ export const updatatProfile = async (req, res, next) => {
 
 export const updatatPassword = async (req, res, next) => {
   const { oldPassword, newPassword } = req.body;
+  if (!newPassword) {
+    throw new Error("New password is required", { cause: 400 });
+  }
 
-  if (!Compare({ plainText: oldPassword, cipherText: req.user.password })) {
+  if (oldPassword === newPassword) {
+    throw new Error("New password must be different", { cause: 400 });
+  }
+
+  if (
+    !(await Compare({ plainText: oldPassword, cipherText: req.user.password }))
+  ) {
     throw new Error("Invalid Password", { cause: 400 });
   }
 
-  const hash = Hash({ plainText: newPassword });
+  const hash = await Hash({ plainText: newPassword });
 
   req.user.password = hash;
-
+  req.user.changeCredential = new Date();
   await req.user.save();
 
+  // to remove new password from response
   req.user.password = undefined;
 
   successResponse({
     res,
-    message: "updated success",
+    message: "Password updated successfully",
     data: req.user,
   });
 };

@@ -29,6 +29,19 @@ export const findOne = async ({ model, filter = {}, options = {} } = {}) => {
   return await doc.exec();
 };
 
+export const findById = async ({ model, filter = {}, options = {} } = {}) => {
+  let query = model.findOne(filter);
+
+  if (options.select) {
+    query = query.select(options.select);
+  }
+
+  if (options.populate) {
+    query = query.populate(options.populate);
+  }
+
+  return await query.exec();
+};
 export const find = async ({ model, filter = {}, options = {} } = {}) => {
   const doc = model.find(filter);
   if (options.populate) {

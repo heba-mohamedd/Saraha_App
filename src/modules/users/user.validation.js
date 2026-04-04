@@ -58,3 +58,28 @@ export const updataPasswordSchema = {
     oldPassword: general_rules.password.required(),
   }).required(),
 };
+
+export const confirmEmailSchema = {
+  body: Joi.object({
+    email: general_rules.email.required(),
+    code: Joi.string()
+      .regex(/^\d{6}$/)
+      .required(),
+  }).required(),
+};
+
+export const resendOtpSchema = {
+  body: Joi.object({
+    email: general_rules.email.required(),
+  }).required(),
+};
+
+export const resetPasswordSchema = {
+  body: Joi.object({
+    email: general_rules.email.required(),
+    code: Joi.string()
+      .regex(/^\d{6}$/)
+      .required(),
+    password: general_rules.password.required(),
+  }).required(),
+};

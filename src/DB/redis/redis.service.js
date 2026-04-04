@@ -1,4 +1,5 @@
 import { redisClient } from "./redis.db.js";
+import { emailEnum } from "./../../common/enum/email.enum.js";
 
 export const revoked_key = ({ userId, jti }) => {
   return `revoke_token::${userId}::${jti}`;
@@ -6,6 +7,16 @@ export const revoked_key = ({ userId, jti }) => {
 
 export const get_key = ({ userId }) => {
   return `revoke_token::${userId}`;
+};
+
+export const otp_key = ({ email, subject = emailEnum.confirmEmail }) => {
+  return `otp::${email}::${subject}`;
+};
+export const max_otp_key = ({ email, subject }) => {
+  return `${otp_key({ email, subject })}::max_tries`;
+};
+export const block_otp_key = ({ email, subject }) => {
+  return `${otp_key({ email, subject })}::block`;
 };
 export const setValue = async ({ key, value, ttl }) => {
   try {
@@ -49,7 +60,7 @@ export const exists = async (key) => {
   }
 };
 
-export const ttl = async (key) => {
+export const get_ttl = async (key) => {
   try {
     return await redisClient.ttl(key);
   } catch (error) {
@@ -79,5 +90,13 @@ export const expire = async (key, ttl) => {
     return await redisClient.expire(key, ttl);
   } catch (error) {
     console.log("error to delete data in redis", error);
+  }
+};
+
+export const incr = async (key) => {
+  try {
+    return await redisClient.incr(key);
+  } catch (error) {
+    console.log("error to incr operation", error);
   }
 };

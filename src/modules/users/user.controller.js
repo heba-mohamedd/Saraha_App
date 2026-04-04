@@ -40,6 +40,24 @@ userRouter.post(
   validation(UV.signUpSchema),
   US.signUp,
 );
+userRouter.patch(
+  "/confirm-email",
+  validation(UV.confirmEmailSchema),
+  US.confirmEmail,
+);
+
+userRouter.patch(
+  "/forget-password",
+  validation(UV.resendOtpSchema),
+  US.forgetPassword,
+);
+userRouter.patch(
+  "/reset-password",
+  validation(UV.resetPasswordSchema),
+  US.resetPassword,
+);
+
+userRouter.patch("/resend-otp", validation(UV.resendOtpSchema), US.resendOtp);
 userRouter.post("/signup/gmail", US.signUpWithGmail);
 userRouter.post("/signin", validation(UV.signInSchema), US.signIn);
 userRouter.get("/refresh_token", US.refreshToken);

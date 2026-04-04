@@ -4,6 +4,7 @@ import userRouter from "./modules/users/user.controller.js";
 import cors from "cors";
 import { PORT } from "../config/config.service.js";
 import { redisConnection } from "./DB/redis/redis.db.js";
+import messageRouter from "./modules/messages/message.controller.js";
 const app = express();
 const port = PORT;
 
@@ -16,6 +17,7 @@ const bootstrap = async () => {
   redisConnection();
 
   app.use("/users", userRouter);
+  app.use("/messages", messageRouter);
   app.use("{/*demo}", (req, res, next) => {
     throw new Error(`URL ${req.originalUrl} Not Found ....`, { cause: 404 });
   });
