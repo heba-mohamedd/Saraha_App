@@ -18,6 +18,14 @@ export const max_otp_key = ({ email, subject }) => {
 export const block_otp_key = ({ email, subject }) => {
   return `${otp_key({ email, subject })}::block`;
 };
+/******************************************************************/
+export const count_login_key = ({ email }) => {
+  return `login::${email}::max_tries`;
+};
+export const blocked_login_key = ({ email }) => {
+  return `login::${email}::blocked`;
+};
+/******************************************************************/
 export const setValue = async ({ key, value, ttl }) => {
   try {
     const data = typeof value === "string" ? value : JSON.stringify(value);

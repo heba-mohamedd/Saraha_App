@@ -24,6 +24,8 @@ import userModel from "../../DB/models/user.model.js";
 import fs from "node:fs";
 import {
   block_otp_key,
+  blocked_login_key,
+  count_login_key,
   deleteKey,
   expire,
   get,
@@ -427,8 +429,29 @@ export const signIn = async (req, res, next) => {
     //   return res.status(409).json({ message: "user not exist" });
     throw new Error("user not exist", { cause: 404 });
   }
+
+  const ttl = await get_ttl(blocked_login_key({ email }));
+  if (ttl > 0) {
+    throw new Error(`you are blocked, please try again after ${ttl} saconds`, {
+      cause: 400,
+    });
+  }
+
   if (!(await Compare({ plainText: password, cipherText: user.password }))) {
     //   return res.status(409).json({ message: "Invalid Password" });
+    const attempts = await incr(count_login_key({ email }));
+
+    if (attempts === 1) {
+      await expire(count_login_key({ email }), 2 * 60);
+    }
+
+    if (attempts >= 5) {
+      await setValue({
+        key: blocked_login_key({ email }),
+        value: 1,
+        ttl: 5 * 60,
+      });
+    }
     throw new Error("Invalid Password", { cause: 400 });
   }
   const jwtid = randomUUID();
@@ -443,6 +466,8 @@ export const signIn = async (req, res, next) => {
     secret_key: REFRESH_SECRET_KEY,
     options: { expiresIn: "1y", jwtid },
   });
+
+  await deleteKey(count_login_key({ email }));
 
   successResponse({
     res,
