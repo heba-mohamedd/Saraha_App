@@ -2,14 +2,30 @@ import express from "express";
 import checkConnectionDB from "./DB/connectionDB.js";
 import userRouter from "./modules/users/user.controller.js";
 import cors from "cors";
-import { PORT } from "../config/config.service.js";
+import { PORT, WHITE_LIST } from "../config/config.service.js";
 import { redisConnection } from "./DB/redis/redis.db.js";
 import messageRouter from "./modules/messages/message.controller.js";
+import helmet from "helmet";
+import { rateLimit } from "express-rate-limit";
 const app = express();
 const port = PORT;
 
 const bootstrap = async () => {
-  app.use(cors(), express.json());
+  const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    limit: 100, // Limit each IP to 100 requests per `window` (here, per 15 minutes).
+    requestPropertyName: "rate-limit",
+  });
+  const corsOptions = {
+    origin: function (origin, callback) {
+      if ([...WHITE_LIST, undefined].includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("not allow by cors"));
+      }
+    },
+  };
+  app.use(cors(corsOptions), helmet(), limiter, express.json());
   app.use("/uploads", express.static("uploads"));
   app.get("/", (req, res) => res.send("wellcome in saraha App"));
 
